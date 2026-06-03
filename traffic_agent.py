@@ -21,16 +21,36 @@ DEFAULT_HOME = os.getenv("HOME_ADDRESS")
 DEFAULT_OFFICE = os.getenv("OFFICE_ADDRESS")
 TRIGGER_MESSAGE = os.getenv("TRIGGER_MESSAGE", "")
 
-# Localized price baseline for Hyderabad, Telangana
-PETROL_PRICE_HYD = 115.73  
+def get_live_petrol_price():
+    """Fetches the live daily petrol price for Telangana/Hyderabad from an open API endpoint."""
+    fallback_price = 115.73 # Standard historical baseline if API fails
+    try:
+        url = "https://www.trinadhthatakula.com/fuelCheck/india/"
+        response = requests.get(url, timeout=10)
+        
+        # The API returns a list of dictionaries. We need to find Telangana.
+        if response.status_code == 200:
+            data = response.json()
+            for state_data in data:
+                if state_data.get('state', '').lower() == 'telangana':
+                    # Extract the petrol price and convert to float
+                    price_str = state_data.get('petrol', str(fallback_price))
+                    # Clean up the string just in case it has currency symbols
+                    clean_price = re.sub(r'[^\d.]', '', price_str)
+                    return float(clean_price)
+    except Exception as e:
+        print(f"Failed to fetch live petrol price: {e}. Using fallback.")
+        
+    return fallback_price
+
+# Fetch dynamic localized price baseline for Hyderabad, Telangana
+PETROL_PRICE_HYD = get_live_petrol_price()
 
 def parse_trigger_message_with_llm(msg):
     """Uses a free serverless LLM to extract source, destination, and timing offsets into a clean dictionary."""
-    # Instantly fallback if empty or a simple system trigger
     if not msg or len(msg.strip()) < 10:
         return DEFAULT_HOME, DEFAULT_OFFICE, 0
 
-    # Strict system instructions forcing JSON output
     system_prompt = (
         "You are a precise data extraction assistant. Your task is to extract navigation routing details "
         "from a user's text message. You must output exactly a JSON dictionary with these keys: "
@@ -53,12 +73,10 @@ def parse_trigger_message_with_llm(msg):
         if response.status_code == 200:
             raw_output = response.json()[0]['generated_text']
             
-            # Extract just the JSON content if the LLM added prose
             json_match = re.search(r'\{.*?\}', raw_output, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group(0))
                 
-                # Extract and map back to fallbacks if values are null
                 source = data.get("source") or DEFAULT_HOME
                 destination = data.get("destination") or DEFAULT_OFFICE
                 offset = int(data.get("offset_minutes", 0))
@@ -67,7 +85,6 @@ def parse_trigger_message_with_llm(msg):
     except Exception as e:
         print(f"LLM parsing failed or timed out: {e}. Falling back to default secrets.")
         
-    # Standard fallback if LLM api fails
     return DEFAULT_HOME, DEFAULT_OFFICE, 0
 
 def get_ist_time():
@@ -89,7 +106,7 @@ def get_aqi_metrics(lat, lon):
         return "Offline"
 
 def generate_maps_navigation_url(coords, mode):
-    """Generates standard universal deep links using coordinates to guarantee mobile resolution."""
+    """Generates standard universal deep links using precise coordinates to guarantee mobile resolution."""
     start_lat = coords.get('start_lat')
     start_lon = coords.get('start_lon')
     end_lat = coords.get('end_lat')
@@ -149,9 +166,11 @@ def profile_predictive_engine(source, destination, base_offset, mode):
     if len(sampled_durations) < 2:
         return None
 
+    # Calculate precise fuel consumption expenses using the LIVE petrol price
     mileage = 12.0 if mode == "driving" else 25.0
     fuel_cost = (distance_km / mileage) * PETROL_PRICE_HYD
     
+    # Delta optimization matrix
     delta_10 = sampled_durations[1] - sampled_durations[0]
     if delta_10 > 0.5:
         immediate_trend = f"Building 📈 (+{int(delta_10)}m if you wait 10m)"
@@ -206,7 +225,7 @@ def construct_jarvis_intelligence_brief():
         brief.extend([
             f"🚗 *CAR SYSTEM PROFILE [{car_profile['via']}]*",
             f"• ⏱️ ETA: `{car_profile['current_eta']}` | Range: {car_profile['distance']}",
-            f"• ⛽ Fuel Cost: *{car_profile['fuel_cost']}*",
+            f"• ⛽ Fuel Cost: *{car_profile['fuel_cost']}* (Live Price: ₹{PETROL_PRICE_HYD:.2f}/L)",
             f"• 🔮 10-Min Trend: {car_profile['trend']}",
             f"• 💡 Vector Strategy: {car_profile['recommendation']}",
             f"🔗 *Launch Navigation:* {car_profile['nav_link']}",
@@ -217,7 +236,7 @@ def construct_jarvis_intelligence_brief():
         brief.extend([
             f"🏍️ *BIKE SYSTEM PROFILE [{bike_profile['via']}]*",
             f"• ⏱️ ETA: `{bike_profile['current_eta']}` | Range: {bike_profile['distance']}",
-            f"• ⛽ Fuel Cost: *{bike_profile['fuel_cost']}*",
+            f"• ⛽ Fuel Cost: *{bike_profile['fuel_cost']}* (Live Price: ₹{PETROL_PRICE_HYD:.2f}/L)",
             f"• 🔮 10-Min Trend: {bike_profile['trend']}",
             f"• 💡 Vector Strategy: {bike_profile['recommendation']}",
             f"🔗 *Launch Navigation:* {bike_profile['nav_link']}"
