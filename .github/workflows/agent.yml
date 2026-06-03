@@ -22,7 +22,7 @@ jobs:
 
       - name: Execute Agent Script
         env:
-          GOOGLE_MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           YOUR_CELL_NUMBER: ${{ secrets.YOUR_CELL_NUMBER }}
