@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JARVIS Flight Plan Interface</title>
     <style>
-        /* Base Styling & Dark Theme */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #0f172a;
@@ -25,23 +24,9 @@
             max-width: 400px;
             box-sizing: border-box;
         }
-        h2 {
-            margin-top: 0;
-            color: #38bdf8;
-            text-align: center;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-size: 0.9rem;
-            color: #94a3b8;
-            font-weight: 500;
-        }
+        h2 { margin-top: 0; color: #38bdf8; text-align: center; }
+        .form-group { margin-bottom: 1.5rem; }
+        label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #94a3b8; }
         input[type="text"] {
             width: 100%;
             padding: 0.85rem;
@@ -50,13 +35,6 @@
             background-color: #0f172a;
             color: #f8fafc;
             box-sizing: border-box;
-            font-size: 1rem;
-            transition: border-color 0.2s;
-        }
-        input[type="text"]:focus {
-            outline: none;
-            border-color: #38bdf8;
-            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1);
         }
         button {
             width: 100%;
@@ -65,32 +43,11 @@
             color: white;
             border: none;
             border-radius: 6px;
-            font-size: 1rem;
             font-weight: bold;
             cursor: pointer;
-            transition: background-color 0.2s, transform 0.1s;
-            margin-top: 0.5rem;
         }
-        button:hover {
-            background-color: #0369a1;
-        }
-        button:active {
-            transform: scale(0.98);
-        }
-        button:disabled {
-            background-color: #475569;
-            cursor: not-allowed;
-            transform: none;
-        }
-        #statusMessage {
-            margin-top: 1.5rem;
-            text-align: center;
-            font-size: 0.95rem;
-            min-height: 24px;
-            font-weight: 500;
-        }
-        
-        /* Status Colors */
+        button:disabled { background-color: #475569; cursor: not-allowed; }
+        #statusMessage { margin-top: 1.5rem; text-align: center; font-weight: 500; }
         .success { color: #4ade80; }
         .error { color: #f87171; }
         .loading { color: #fbbf24; }
@@ -100,27 +57,19 @@
 
 <div class="container">
     <h2>✈️ JARVIS Link</h2>
-    
     <div class="form-group">
         <label for="sourceInput">Origin Vector</label>
-        <input type="text" id="sourceInput" placeholder="e.g., Nanakramguda, Hyderabad">
+        <input type="text" id="sourceInput" placeholder="e.g., Nanakramguda">
     </div>
-    
     <div class="form-group">
         <label for="destInput">Target Destination</label>
-        <input type="text" id="destInput" placeholder="e.g., RMZ Spire, Tower 100">
+        <input type="text" id="destInput" placeholder="e.g., RMZ Spire">
     </div>
-    
     <button id="triggerBtn" onclick="fireFlightPlan()">Launch Flight Plan</button>
-    
     <div id="statusMessage"></div>
 </div>
 
 <script>
-    // ==============================================================================
-    // IMPORTANT: Replace this placeholder with the exact Twilio Function URL
-    // you created in Step 1 (e.g., https://github-bridge-xxxx.twil.io/web-trigger)
-    // ==============================================================================
     const TWILIO_WEBHOOK_URL = 'https://github-bridge-1669.twil.io/web-trigger';
 
     async function fireFlightPlan() {
@@ -132,57 +81,43 @@
         const src = srcInput.value.trim();
         const dest = destInput.value.trim();
 
-        // 1. Input Validation
         if (!src || !dest) {
             statusText.className = 'error';
-            statusText.innerText = "⚠️ Please provide both Origin and Destination.";
+            statusText.innerText = "⚠️ Please fill in all fields.";
             return;
         }
 
-        // 2. Set UI to Loading State
         btn.disabled = true;
-        btn.innerText = "Transmitting to Core...";
+        btn.innerText = "Transmitting...";
         statusText.className = 'loading';
-        statusText.innerText = "Firing request to GitHub Actions...";
+        statusText.innerText = "Contacting GitHub Actions...";
 
-        // 3. Execute Secure Backend Call
         try {
             const response = await fetch(TWILIO_WEBHOOK_URL, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    source: src,
-                    destination: dest
-                })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source: src, destination: dest })
             });
 
             const data = await response.json();
             
-            // 4. Handle Response
             if (response.ok && data.success) {
                 statusText.className = 'success';
-                statusText.innerText = data.message; 
-                
-                // Optional: Clear fields after successful trigger
+                statusText.innerText = data.message;
                 srcInput.value = '';
                 destInput.value = '';
             } else {
-                statusText.className = 'error';
-                statusText.innerText = "⚠️ Error: " + (data.error || "Failed to trigger pipeline.");
+                throw new Error(data.error || "Failed to trigger pipeline.");
             }
         } catch (error) {
             statusText.className = 'error';
-            statusText.innerText = "⚠️ Network error connecting to Twilio Bridge.";
-            console.error("Fetch Error:", error);
+            statusText.innerText = "⚠️ " + error.message;
+            console.error("Transmission Error:", error);
         } finally {
-            // 5. Restore UI State
             btn.disabled = false;
             btn.innerText = "Launch Flight Plan";
         }
     }
 </script>
-
 </body>
 </html>
