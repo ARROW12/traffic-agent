@@ -14,7 +14,6 @@ HOME_ADDRESS = os.getenv("HOME_ADDRESS")
 OFFICE_ADDRESS = os.getenv("OFFICE_ADDRESS")
 
 # Define alternative routes using intermediate waypoints to force separate paths
-# Note: Replace spaces with '+' signs when defining waypoints below
 ROUTES = {
     "Route Alpha (Main Highway)": "Waypoint+Address+One+City",
     "Route Beta (Expressway/Toll)": "Waypoint+Address+Two+City",
@@ -23,31 +22,44 @@ ROUTES = {
 
 def get_best_route():
     route_results = {}
+    error_logs = []
     
     for route_name, waypoint in ROUTES.items():
-        # 'departure_time=now' forces Google to evaluate real-time gridlock conditions
+        # Switched to Directions API which natively supports the 'via:' waypoint routing modifier
         url = (
-            f"https://maps.googleapis.com/maps/api/distancematrix/json?"
-            f"origins={HOME_ADDRESS}&destinations={OFFICE_ADDRESS}&waypoints={waypoint}"
+            f"https://maps.googleapis.com/maps/api/directions/json?"
+            f"origin={HOME_ADDRESS}&destination={OFFICE_ADDRESS}&waypoints=via:{waypoint}"
             f"&departure_time=now&traffic_model=best_guess&key={GOOGLE_MAPS_API_KEY}"
         )
         try:
-            response = requests.get(url).json()
-            element = response['rows'][0]['elements'][0]
+            res = requests.get(url).json()
             
-            # Extract real-time human-readable time and absolute value in seconds
-            duration_in_traffic = element['duration_in_traffic']['text']
-            duration_seconds = element['duration_in_traffic']['value']
+            # If Google explicitly flags an error code, log it
+            if res.get("status") != "OK":
+                error_detail = res.get("error_message", res.get("status"))
+                error_logs.append(f"• {route_name}: {error_detail}")
+                continue
+                
+            leg = res['routes'][0]['legs'][0]
             
+            # Extract traffic duration or fall back gracefully to base timeline
+            if 'duration_in_traffic' in leg:
+                duration_text = leg['duration_in_traffic']['text']
+                duration_seconds = leg['duration_in_traffic']['value']
+            else:
+                duration_text = leg['duration']['text'] + " (No Traffic Info)"
+                duration_seconds = leg['duration']['value']
+                
             route_results[route_name] = {
-                "text": duration_in_traffic,
+                "text": duration_text,
                 "seconds": duration_seconds
             }
         except Exception as e:
-            print(f"Error processing route data for {route_name}: {e}")
+            error_logs.append(f"• {route_name} Code Exception: {str(e)}")
             
     if not route_results:
-        return "⚠️ *Traffic Agent Error:* Unable to retrieve real-time data from the mapping API."
+        error_summary = "\n".join(error_logs)
+        return f"⚠️ *Google Maps Configuration Error:*\n\n{error_summary}\n\n_Please check your Google Cloud Console settings._"
         
     # Find the path with the absolute lowest duration in seconds
     fastest_route = min(route_results, key=lambda x: route_results[x]['seconds'])
@@ -68,7 +80,7 @@ def send_whatsapp_message(text):
         body=text,
         to=YOUR_CELL_NUMBER
     )
-    print(f"Workflow successfully completed. Notification Sent SID: {message.sid}")
+    print(f"Workflow completed. Notification Sent: {message.sid}")
 
 if __name__ == "__main__":
     traffic_report = get_best_route()
