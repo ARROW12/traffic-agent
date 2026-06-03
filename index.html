@@ -3,393 +3,186 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JARVIS Traffic Agent - Interactive Console</title>
+    <title>JARVIS Flight Plan Interface</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        /* Base Styling & Dark Theme */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            background-color: #0f172a;
+            color: #e2e8f0;
             display: flex;
-            align-items: center;
             justify-content: center;
-            padding: 20px;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
         }
-
         .container {
+            background-color: #1e293b;
+            padding: 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
             width: 100%;
-            max-width: 600px;
-            height: 90vh;
-            max-height: 800px;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
+            max-width: 400px;
+            box-sizing: border-box;
         }
-
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
+        h2 {
+            margin-top: 0;
+            color: #38bdf8;
             text-align: center;
+            font-weight: 600;
+            letter-spacing: 0.5px;
         }
-
-        .header h1 {
-            font-size: 1.8em;
-            margin-bottom: 5px;
+        .form-group {
+            margin-bottom: 1.5rem;
         }
-
-        .header p {
-            font-size: 0.9em;
-            opacity: 0.9;
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            color: #94a3b8;
+            font-weight: 500;
         }
-
-        .console {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            background: #f8f9fa;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
+        input[type="text"] {
+            width: 100%;
+            padding: 0.85rem;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            background-color: #0f172a;
+            color: #f8fafc;
+            box-sizing: border-box;
+            font-size: 1rem;
+            transition: border-color 0.2s;
         }
-
-        .message {
-            display: flex;
-            gap: 10px;
-            animation: fadeIn 0.3s ease-in;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .bot-message {
-            justify-content: flex-start;
-        }
-
-        .user-message {
-            justify-content: flex-end;
-        }
-
-        .bubble {
-            max-width: 80%;
-            padding: 12px 16px;
-            border-radius: 18px;
-            word-wrap: break-word;
-            line-height: 1.4;
-        }
-
-        .bot-bubble {
-            background: #e3e5e7;
-            color: #333;
-            border-bottom-left-radius: 4px;
-        }
-
-        .user-bubble {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-
-        .typing {
-            display: flex;
-            gap: 5px;
-        }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            background: #667eea;
-            border-radius: 50%;
-            animation: typing 1.4s infinite;
-        }
-
-        .dot:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-
-        .dot:nth-child(3) {
-            animation-delay: 0.4s;
-        }
-
-        @keyframes typing {
-            0%, 60%, 100% { transform: translateY(0); }
-            30% { transform: translateY(-10px); }
-        }
-
-        .input-area {
-            border-top: 1px solid #e0e0e0;
-            padding: 15px;
-            background: white;
-            display: flex;
-            gap: 10px;
-        }
-
-        input {
-            flex: 1;
-            padding: 12px 16px;
-            border: 2px solid #e0e0e0;
-            border-radius: 25px;
-            font-size: 1em;
-            transition: border-color 0.3s;
-        }
-
-        input:focus {
+        input[type="text"]:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1);
         }
-
-        input:disabled {
-            background: #f0f0f0;
-            cursor: not-allowed;
-        }
-
         button {
-            padding: 12px 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 100%;
+            padding: 0.85rem;
+            background-color: #0284c7;
             color: white;
             border: none;
-            border-radius: 25px;
-            font-size: 1em;
-            font-weight: 600;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: background-color 0.2s, transform 0.1s;
+            margin-top: 0.5rem;
         }
-
         button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            background-color: #0369a1;
         }
-
         button:active {
-            transform: translateY(0);
+            transform: scale(0.98);
         }
-
         button:disabled {
-            opacity: 0.5;
+            background-color: #475569;
             cursor: not-allowed;
+            transform: none;
         }
-
-        @media (max-width: 600px) {
-            .container {
-                max-height: 100vh;
-                border-radius: 0;
-            }
-
-            .bubble {
-                max-width: 95%;
-            }
-
-            .header h1 {
-                font-size: 1.5em;
-            }
+        #statusMessage {
+            margin-top: 1.5rem;
+            text-align: center;
+            font-size: 0.95rem;
+            min-height: 24px;
+            font-weight: 500;
         }
+        
+        /* Status Colors */
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+        .loading { color: #fbbf24; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🤖 JARVIS Traffic Agent</h1>
-            <p>Interactive Real-Time Traffic Analysis</p>
-        </div>
 
-        <div class="console" id="console">
-            <div class="message bot-message">
-                <div class="bubble bot-bubble">
-                    <span>👋 Welcome to JARVIS Traffic Agent! I'll help you find the best route.</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="input-area">
-            <input 
-                type="text" 
-                id="input" 
-                placeholder="Type your source location..."
-                autocomplete="off"
-            >
-            <button onclick="handleInput()" id="sendBtn">Send</button>
-        </div>
+<div class="container">
+    <h2>✈️ JARVIS Link</h2>
+    
+    <div class="form-group">
+        <label for="sourceInput">Origin Vector</label>
+        <input type="text" id="sourceInput" placeholder="e.g., Nanakramguda, Hyderabad">
     </div>
+    
+    <div class="form-group">
+        <label for="destInput">Target Destination</label>
+        <input type="text" id="destInput" placeholder="e.g., RMZ Spire, Tower 100">
+    </div>
+    
+    <button id="triggerBtn" onclick="fireFlightPlan()">Launch Flight Plan</button>
+    
+    <div id="statusMessage"></div>
+</div>
 
-    <script>
-        let state = 'AWAITING_SOURCE';
-        let source = '';
-        let destination = '';
-        const API_URL = 'http://localhost:5000/api/traffic';
-        const input = document.getElementById('input');
-        const console_el = document.getElementById('console');
+<script>
+    // ==============================================================================
+    // IMPORTANT: Replace this placeholder with the exact Twilio Function URL
+    // you created in Step 1 (e.g., https://github-bridge-xxxx.twil.io/web-trigger)
+    // ==============================================================================
+    const TWILIO_WEBHOOK_URL = 'YOUR_NEW_TWILIO_WEB_TRIGGER_URL';
 
-        window.addEventListener('load', () => {
-            input.focus();
-        });
+    async function fireFlightPlan() {
+        const srcInput = document.getElementById('sourceInput');
+        const destInput = document.getElementById('destInput');
+        const statusText = document.getElementById('statusMessage');
+        const btn = document.getElementById('triggerBtn');
+        
+        const src = srcInput.value.trim();
+        const dest = destInput.value.trim();
 
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !input.disabled) {
-                handleInput();
-            }
-        });
+        // 1. Input Validation
+        if (!src || !dest) {
+            statusText.className = 'error';
+            statusText.innerText = "⚠️ Please provide both Origin and Destination.";
+            return;
+        }
 
-        function addMessage(text, isUser = false) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+        // 2. Set UI to Loading State
+        btn.disabled = true;
+        btn.innerText = "Transmitting to Core...";
+        statusText.className = 'loading';
+        statusText.innerText = "Firing request to GitHub Actions...";
+
+        // 3. Execute Secure Backend Call
+        try {
+            const response = await fetch(TWILIO_WEBHOOK_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    source: src,
+                    destination: dest
+                })
+            });
+
+            const data = await response.json();
             
-            const bubble = document.createElement('div');
-            bubble.className = `bubble ${isUser ? 'user-bubble' : 'bot-bubble'}`;
-            bubble.textContent = text;
-            
-            messageDiv.appendChild(bubble);
-            console_el.appendChild(messageDiv);
-            console_el.scrollTop = console_el.scrollHeight;
-        }
-
-        function showTyping() {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message bot-message';
-            messageDiv.id = 'typing-indicator';
-            
-            const bubble = document.createElement('div');
-            bubble.className = 'bubble bot-bubble typing';
-            bubble.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
-            
-            messageDiv.appendChild(bubble);
-            console_el.appendChild(messageDiv);
-            console_el.scrollTop = console_el.scrollHeight;
-        }
-
-        function removeTyping() {
-            const typing = document.getElementById('typing-indicator');
-            if (typing) typing.remove();
-        }
-
-        function displayResult(data) {
-            removeTyping();
-
-            addMessage(`📍 Route: ${data.source} → ${data.destination}`);
-            
-            setTimeout(() => {
-                addMessage(`🌡️ Weather: ${data.weather}\n😷 AQI - Source: ${data.aqi.source} | Dest: ${data.aqi.destination}`);
-            }, 300);
-
-            if (data.source_details && data.dest_details) {
-                setTimeout(() => {
-                    let ratingMsg = '⭐ Place Ratings:\n';
-                    if (data.source_details.rating !== 'N/A') {
-                        ratingMsg += `• ${data.source}: ${data.source_details.rating}/5 (${data.source_details.reviews} reviews)\n`;
-                    }
-                    if (data.dest_details.rating !== 'N/A') {
-                        ratingMsg += `• ${data.destination}: ${data.dest_details.rating}/5 (${data.dest_details.reviews} reviews)`;
-                    }
-                    addMessage(ratingMsg);
-                }, 600);
+            // 4. Handle Response
+            if (response.ok && data.success) {
+                statusText.className = 'success';
+                statusText.innerText = data.message; 
+                
+                // Optional: Clear fields after successful trigger
+                srcInput.value = '';
+                destInput.value = '';
+            } else {
+                statusText.className = 'error';
+                statusText.innerText = "⚠️ Error: " + (data.error || "Failed to trigger pipeline.");
             }
-
-            if (data.car_profile) {
-                setTimeout(() => {
-                    const car = data.car_profile;
-                    let carMsg = `🚗 Car Route (${car.via})\n`;
-                    carMsg += `⏱️ ETA: ${car.current_eta} | Distance: ${car.distance}\n`;
-                    carMsg += `⛽ Fuel Cost: ${car.fuel_cost}\n`;
-                    carMsg += `📈 Trend: ${car.trend}\n`;
-                    carMsg += `💡 ${car.recommendation}`;
-                    addMessage(carMsg);
-                }, 900);
-            }
-
-            if (data.bike_profile) {
-                setTimeout(() => {
-                    const bike = data.bike_profile;
-                    let bikeMsg = `🏍️ Bike Route (${bike.via})\n`;
-                    bikeMsg += `⏱️ ETA: ${bike.current_eta} | Distance: ${bike.distance}\n`;
-                    bikeMsg += `⛽ Fuel Cost: ${bike.fuel_cost}\n`;
-                    bikeMsg += `📈 Trend: ${bike.trend}\n`;
-                    bikeMsg += `💡 ${bike.recommendation}`;
-                    addMessage(bikeMsg);
-                }, 1200);
-            }
-
-            setTimeout(() => {
-                addMessage('Would you like to search for another route? Enter the source location:');
-                state = 'AWAITING_SOURCE';
-                source = '';
-                destination = '';
-                input.placeholder = 'Enter source location...';
-                input.disabled = false;
-                input.focus();
-            }, 1500);
+        } catch (error) {
+            statusText.className = 'error';
+            statusText.innerText = "⚠️ Network error connecting to Twilio Bridge.";
+            console.error("Fetch Error:", error);
+        } finally {
+            // 5. Restore UI State
+            btn.disabled = false;
+            btn.innerText = "Launch Flight Plan";
         }
+    }
+</script>
 
-        async function analyzeTraffic() {
-            showTyping();
-            input.disabled = true;
-
-            try {
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ source, destination })
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'Analysis failed');
-                }
-
-                displayResult(data.data);
-            } catch (error) {
-                removeTyping();
-                addMessage(`❌ Error: ${error.message}`);
-                addMessage('Please try again. Enter the source location:');
-                state = 'AWAITING_SOURCE';
-                source = '';
-                destination = '';
-                input.placeholder = 'Enter source location...';
-                input.disabled = false;
-                input.focus();
-            }
-        }
-
-        function handleInput() {
-            const text = input.value.trim();
-
-            if (!text) return;
-
-            addMessage(text, true);
-            input.value = '';
-
-            if (state === 'AWAITING_SOURCE') {
-                source = text;
-                addMessage(`✅ Source set to: ${source}`);
-                setTimeout(() => {
-                    addMessage('Now, where do you want to go? Enter the destination:');
-                    state = 'AWAITING_DESTINATION';
-                    input.placeholder = 'Enter destination...';
-                }, 500);
-            } else if (state === 'AWAITING_DESTINATION') {
-                destination = text;
-                addMessage(`✅ Destination set to: ${destination}`);
-                setTimeout(() => {
-                    addMessage('🔍 Analyzing traffic... please wait');
-                    analyzeTraffic();
-                }, 500);
-            }
-        }
-    </script>
 </body>
 </html>
