@@ -1,6 +1,7 @@
 import os
 import re
 import requests
+import json
 from datetime import datetime, timedelta
 from twilio.rest import Client
 
@@ -10,6 +11,7 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 YOUR_CELL_NUMBER = os.getenv("YOUR_CELL_NUMBER")
 TWILIO_WHATSAPP_NUMBER = "whatsapp:+14155238886"
+OUTPUT_JSON = os.getenv("OUTPUT_JSON", "false").lower() == "true"  # For web interface
 
 # Direct location inputs from Twilio (no LLM needed)
 SOURCE_LOCATION = os.getenv("SOURCE_LOCATION", os.getenv("HOME_ADDRESS"))
@@ -34,6 +36,90 @@ def get_live_petrol_price():
     return fallback_price
 
 PETROL_PRICE_HYD = get_live_petrol_price()
+
+def get_place_details(location_name):
+    """Fetches place details like ratings, hours, photos."""
+    try:
+        url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+        params = {
+            "input": location_name,
+            "inputtype": "textquery",
+            "key": GOOGLE_MAPS_API_KEY,
+            "fields": "place_id,formatted_address,rating,user_ratings_total,opening_hours"
+        }
+        res = requests.get(url, params=params, timeout=5).json()
+        if res.get("candidates"):
+            place = res["candidates"][0]
+            return {
+                "name": place.get("formatted_address", location_name),
+                "rating": place.get("rating", "N/A"),
+                "reviews": place.get("user_ratings_total", 0),
+                "open_now": place.get("opening_hours", {}).get("open_now", None)
+            }
+    except Exception:
+        pass
+    return {"name": location_name, "rating": "N/A", "reviews": 0, "open_now": None}
+
+def get_distance_matrix(source, destination):
+    """Fetches distance and duration for multiple modes."""
+    try:
+        url = "https://maps.googleapis.com/maps/api/distancematrix/json"
+        modes = ["driving", "two-wheeler", "transit"]
+        results = {}
+        
+        for mode in modes:
+            params = {
+                "origins": source,
+                "destinations": destination,
+                "mode": mode if mode != "two-wheeler" else "driving",
+                "key": GOOGLE_MAPS_API_KEY
+            }
+            res = requests.get(url, params=params, timeout=5).json()
+            if res.get("rows"):
+                element = res["rows"][0]["elements"][0]
+                if element.get("status") == "OK":
+                    results[mode] = {
+                        "distance": element.get("distance", {}).get("text", "N/A"),
+                        "duration": element.get("duration", {}).get("text", "N/A"),
+                        "duration_mins": element.get("duration", {}).get("value", 0) / 60
+                    }
+        return results
+    except Exception:
+        return {}
+
+def get_timezone_offset(lat, lon):
+    """Gets timezone for a location."""
+    try:
+        timestamp = int(datetime.utcnow().timestamp())
+        url = f"https://maps.googleapis.com/maps/api/timezone/json"
+        params = {
+            "location": f"{lat},{lon}",
+            "timestamp": timestamp,
+            "key": GOOGLE_MAPS_API_KEY
+        }
+        res = requests.get(url, params=params, timeout=5).json()
+        if res.get("status") == "OK":
+            return res.get("timeZoneName", "IST")
+    except Exception:
+        pass
+    return "IST"
+
+def get_speed_limits(lat, lon):
+    """Fetches speed limits from Roads API."""
+    try:
+        url = "https://roads.googleapis.com/v1/speedLimits"
+        params = {
+            "path": f"{lat},{lon}",
+            "key": GOOGLE_MAPS_API_KEY
+        }
+        res = requests.get(url, params=params, timeout=5).json()
+        if res.get("speedLimits"):
+            limit = res["speedLimits"][0].get("speedLimit", "Unknown")
+            unit = res["speedLimits"][0].get("units", "KPH")
+            return f"{limit} {unit}"
+    except Exception:
+        pass
+    return "N/A"
 
 def get_ist_time():
     """Converts server runtime clock to Indian Standard Time (IST)."""
@@ -161,6 +247,10 @@ def construct_jarvis_intelligence_brief():
     source = SOURCE_LOCATION
     destination = DESTINATION_LOCATION
     
+    # Get place details
+    source_details = get_place_details(source)
+    dest_details = get_place_details(destination)
+    
     car_profile = profile_predictive_engine(source, destination, "driving")
     bike_profile = profile_predictive_engine(source, destination, "two-wheeler")
     
@@ -181,6 +271,8 @@ def construct_jarvis_intelligence_brief():
     brief = [
         f"🤖 *JARVIS FLIGHT PLAN SYSTEM — SYNC_{timestamp}*",
         f"🗺️ *Vector:* {display_source} ➔ {display_dest}",
+        f"⭐ *Origin:* {source_details['rating']} ({source_details['reviews']} reviews)",
+        f"⭐ *Destination:* {dest_details['rating']} ({dest_details['reviews']} reviews)",
         f"🌡️ *Weather:* {vector_weather}",
         f"😷 *AQI:* Source: {source_aqi} | Dest: {dest_aqi}",
         "============================="
@@ -209,16 +301,51 @@ def construct_jarvis_intelligence_brief():
         
     if not car_profile and not bike_profile:
         return f"⚠️ Core Interface Failure: Target routing strings could not be resolved."
-        
-    return "\n".join(brief)
+    
+    brief_text = "\n".join(brief)
+    
+    # Return structured data if needed for web interface
+    if OUTPUT_JSON:
+        return {
+            "text": brief_text,
+            "data": {
+                "source": display_source,
+                "destination": display_dest,
+                "timestamp": timestamp,
+                "source_details": source_details,
+                "dest_details": dest_details,
+                "car_profile": car_profile,
+                "bike_profile": bike_profile,
+                "weather": vector_weather,
+                "aqi": {"source": source_aqi, "destination": dest_aqi}
+            }
+        }
+    
+    return brief_text
 
-def dispatch_brief(text):
+def dispatch_brief(result):
     """Transmits structural intelligence report to user endpoint."""
+    # Extract text from result (could be dict or string)
+    if isinstance(result, dict):
+        text = result.get("text", "")
+        # If OUTPUT_JSON, print JSON for web interface
+        if OUTPUT_JSON:
+            print(json.dumps(result))
+            return
+    else:
+        text = result
+    
     if len(text) > 1550:
         text = text[:1500] + "\n\n⚠️ Payload truncated to meet text character safety buffers."
-        
-    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-    client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=text, to=YOUR_CELL_NUMBER)
+    
+    try:
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=text, to=YOUR_CELL_NUMBER)
+    except Exception as e:
+        print(f"WhatsApp send failed: {str(e)}")
+        # Still print JSON if available for web interface
+        if isinstance(result, dict):
+            print(json.dumps(result))
 
 if __name__ == "__main__":
     briefing_payload = construct_jarvis_intelligence_brief()
