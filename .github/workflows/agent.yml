@@ -3,7 +3,7 @@ name: Traffic Agent Copilot
 on:
   repository_dispatch:
     types: [whatsapp_trigger]
-  workflow_dispatch: # Allows you to trigger manually from the GitHub UI for testing
+  workflow_dispatch:
 
 jobs:
   run-agent:
@@ -29,4 +29,5 @@ jobs:
           YOUR_CELL_NUMBER: ${{ secrets.YOUR_CELL_NUMBER }}
           HOME_ADDRESS: ${{ secrets.HOME_ADDRESS }}
           OFFICE_ADDRESS: ${{ secrets.OFFICE_ADDRESS }}
+          TRIGGER_MESSAGE: ${{ github.event.client_payload.message }}
         run: python traffic_agent.py
