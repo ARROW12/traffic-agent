@@ -1,24 +1,25 @@
-name: Run Traffic Agent On Demand
+name: Traffic Agent Copilot
 
 on:
   repository_dispatch:
     types: [whatsapp_trigger]
-  workflow_dispatch: # Allows you to manually click "Run workflow" in GitHub UI for testing
+  workflow_dispatch: # Allows you to trigger manually from the GitHub UI for testing
 
 jobs:
   run-agent:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install requests twilio
+        run: |
+          pip install requests twilio scikit-learn numpy
 
       - name: Execute Agent Script
         env:
