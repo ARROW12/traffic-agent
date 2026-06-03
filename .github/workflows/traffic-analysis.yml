@@ -42,4 +42,5 @@ jobs:
           python traffic_agent.py
       
       - name: Log completion
-        run: echo "Traffic analysis completed for: ${{ github.event.inputs.source }} to ${{ github.event.inputs.destination }}"
+        run: |
+          echo "Traffic analysis completed for: ${{ github.event.inputs.source }} to ${{ github.event.inputs.destination }}"
