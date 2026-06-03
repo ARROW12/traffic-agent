@@ -19,6 +19,12 @@ exports.handler = async function(context, event, callback) {
     const repo = context.GITHUB_REPO;
     const workflow = context.WORKFLOW_FILE;
 
+    console.log('Config loaded:', { 
+        hasToken: !!githubToken, 
+        repo: repo, 
+        workflow: workflow 
+    });
+
     // Initialize state profile if empty
     if (!global.userStates[userNumber]) {
         global.userStates[userNumber] = { stage: "IDLE", source: null };
@@ -62,6 +68,14 @@ exports.handler = async function(context, event, callback) {
         if (!incomingBody || incomingBody.length < 2) {
             twiml.message("⚠️ Please reply with a valid target destination location address name.");
             return callback(null, twiml);
+        }
+
+        // Validate GitHub configuration before proceeding
+        if (!githubToken || !repo || !workflow) {
+            console.error('Missing GitHub config:', { githubToken: !!githubToken, repo, workflow });
+            const errorTwiml = new Twilio.twiml.MessagingResponse();
+            errorTwiml.message("⚠️ System configuration incomplete. Contact administrator.");
+            return callback(null, errorTwiml);
         }
 
         const resolvedSource = currentState.source;
