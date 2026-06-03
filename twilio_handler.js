@@ -77,7 +77,7 @@ exports.handler = async function(context, event, callback) {
         // Trigger GitHub Actions Workflow via API
         const url = `https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches`;
         const headers = {
-            'Accept': 'application/vnd.github.v3+json',
+            'Accept': 'application/vnd.github+json',
             'Authorization': `Bearer ${githubToken}`,
             'User-Agent': 'Twilio-Function'
         };
@@ -95,10 +95,15 @@ exports.handler = async function(context, event, callback) {
             await axios.post(url, data, { headers });
             return callback(null, twiml);
         } catch (error) {
-            console.error(error.response ? error.response.data : error.message);
+            console.error('GitHub API Error:', {
+                url: url,
+                status: error.response?.status,
+                data: error.response?.data,
+                message: error.message
+            });
             // Fallback communication block
             const errorTwiml = new Twilio.twiml.MessagingResponse();
-            errorTwiml.message("❌ Pipeline interface deployment connection failure on core endpoint.");
+            errorTwiml.message("❌ Unable to trigger analysis. Please verify GitHub configuration.");
             return callback(null, errorTwiml);
         }
     }
