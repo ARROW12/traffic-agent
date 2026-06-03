@@ -3,7 +3,7 @@ import requests
 from twilio.rest import Client
 
 # Fetch API Keys & Numbers from GitHub Environment Variables
-GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+GOOGLE_MAPS_API_KEY = os.getenv("MAPS_API_KEY")
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 YOUR_CELL_NUMBER = os.getenv("YOUR_CELL_NUMBER")
