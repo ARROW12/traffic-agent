@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JARVIS Traffic Agent - Intelligent Traffic Analysis</title>
+    <title>JARVIS Traffic Agent - Interactive Console</title>
     <style>
         * {
             margin: 0;
@@ -15,65 +15,136 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
         }
 
         .container {
-            max-width: 1200px;
-            margin: 0 auto;
+            width: 100%;
+            max-width: 600px;
+            height: 90vh;
+            max-height: 800px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
-        header {
-            text-align: center;
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            margin-bottom: 30px;
+            padding: 20px;
+            text-align: center;
         }
 
-        header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        .header h1 {
+            font-size: 1.8em;
+            margin-bottom: 5px;
         }
 
-        header p {
-            font-size: 1.1em;
+        .header p {
+            font-size: 0.9em;
             opacity: 0.9;
         }
 
-        .main-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 30px;
+        .console {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
         }
 
-        .card {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        .message {
+            display: flex;
+            gap: 10px;
+            animation: fadeIn 0.3s ease-in;
         }
 
-        .search-card {
-            grid-column: 1;
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
-        .input-group {
-            margin-bottom: 20px;
+        .bot-message {
+            justify-content: flex-start;
         }
 
-        label {
-            display: block;
-            margin-bottom: 8px;
+        .user-message {
+            justify-content: flex-end;
+        }
+
+        .bubble {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+            line-height: 1.4;
+        }
+
+        .bot-bubble {
+            background: #e3e5e7;
             color: #333;
-            font-weight: 600;
+            border-bottom-left-radius: 4px;
+        }
+
+        .user-bubble {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .typing {
+            display: flex;
+            gap: 5px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-10px); }
+        }
+
+        .input-area {
+            border-top: 1px solid #e0e0e0;
+            padding: 15px;
+            background: white;
+            display: flex;
+            gap: 10px;
         }
 
         input {
-            width: 100%;
-            padding: 12px;
+            flex: 1;
+            padding: 12px 16px;
             border: 2px solid #e0e0e0;
-            border-radius: 6px;
+            border-radius: 25px;
             font-size: 1em;
             transition: border-color 0.3s;
         }
@@ -83,14 +154,18 @@
             border-color: #667eea;
         }
 
+        input:disabled {
+            background: #f0f0f0;
+            cursor: not-allowed;
+        }
+
         button {
-            width: 100%;
-            padding: 14px;
+            padding: 12px 24px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            border-radius: 6px;
-            font-size: 1.1em;
+            border-radius: 25px;
+            font-size: 1em;
             font-weight: 600;
             cursor: pointer;
             transition: transform 0.2s, box-shadow 0.2s;
@@ -98,255 +173,173 @@
 
         button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
         }
 
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
-            transform: none;
         }
 
-        .results-card {
-            grid-column: 2;
-            display: none;
-        }
-
-        .results-card.show {
-            display: block;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #667eea;
-        }
-
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .error {
-            color: #d32f2f;
-            padding: 15px;
-            background: #ffebee;
-            border-radius: 6px;
-            margin-bottom: 20px;
-        }
-
-        .results-section {
-            margin-bottom: 25px;
-        }
-
-        .results-section h3 {
-            color: #667eea;
-            margin-bottom: 15px;
-            font-size: 1.3em;
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
-        }
-
-        .location-info {
-            background: #f5f5f5;
-            padding: 15px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-        }
-
-        .location-info p {
-            margin: 5px 0;
-            color: #555;
-        }
-
-        .rating {
-            color: #ffc107;
-            font-weight: bold;
-        }
-
-        .route-option {
-            background: #f9f9f9;
-            padding: 15px;
-            border-left: 4px solid #667eea;
-            margin-bottom: 12px;
-            border-radius: 4px;
-        }
-
-        .route-option strong {
-            color: #333;
-        }
-
-        .eta {
-            font-size: 1.3em;
-            color: #667eea;
-            font-weight: bold;
-        }
-
-        .cost {
-            color: #27ae60;
-            font-weight: 600;
-        }
-
-        .trend {
-            padding: 8px 12px;
-            background: #e8f5e9;
-            border-radius: 4px;
-            display: inline-block;
-            font-size: 0.9em;
-        }
-
-        .weather-aqi {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-
-        .weather-box, .aqi-box {
-            padding: 15px;
-            background: #f5f5f5;
-            border-radius: 6px;
-            text-align: center;
-        }
-
-        .weather-box h4, .aqi-box h4 {
-            color: #555;
-            font-size: 0.9em;
-            margin-bottom: 8px;
-        }
-
-        .weather-box p, .aqi-box p {
-            font-size: 1.2em;
-            font-weight: 600;
-            color: #667eea;
-        }
-
-        .nav-link {
-            display: inline-block;
-            margin-top: 10px;
-            padding: 10px 15px;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            font-size: 0.9em;
-            transition: background 0.3s;
-        }
-
-        .nav-link:hover {
-            background: #764ba2;
-        }
-
-        @media (max-width: 768px) {
-            .main-content {
-                grid-template-columns: 1fr;
+        @media (max-width: 600px) {
+            .container {
+                max-height: 100vh;
+                border-radius: 0;
             }
 
-            .search-card {
-                grid-column: 1;
+            .bubble {
+                max-width: 95%;
             }
 
-            .results-card {
-                grid-column: 1;
+            .header h1 {
+                font-size: 1.5em;
             }
-
-            header h1 {
-                font-size: 2em;
-            }
-
-            .weather-aqi {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .info-section {
-            background: rgba(255,255,255,0.1);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 30px;
-            text-align: center;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <header>
+        <div class="header">
             <h1>🤖 JARVIS Traffic Agent</h1>
-            <p>Intelligent Real-Time Traffic Analysis & Route Optimization</p>
-        </header>
+            <p>Interactive Real-Time Traffic Analysis</p>
+        </div>
 
-        <div class="main-content">
-            <div class="card search-card">
-                <h2>Plan Your Route</h2>
-                
-                <div class="input-group">
-                    <label for="source">Starting Location</label>
-                    <input 
-                        type="text" 
-                        id="source" 
-                        placeholder="e.g., Hitech City, Hyderabad"
-                        value="Hitech City, Hyderabad"
-                    >
+        <div class="console" id="console">
+            <div class="message bot-message">
+                <div class="bubble bot-bubble">
+                    <span>👋 Welcome to JARVIS Traffic Agent! I'll help you find the best route.</span>
                 </div>
-
-                <div class="input-group">
-                    <label for="destination">Destination</label>
-                    <input 
-                        type="text" 
-                        id="destination" 
-                        placeholder="e.g., Banjara Hills"
-                        value="Banjara Hills"
-                    >
-                </div>
-
-                <button onclick="analyzeTraffic()">🚀 Analyze Traffic</button>
-
-                <div id="error" class="error" style="display: none;"></div>
-            </div>
-
-            <div class="card results-card" id="resultsCard">
-                <div id="resultsContent"></div>
             </div>
         </div>
 
-        <div class="info-section">
-            <p>📱 Also available on WhatsApp! • 🔄 Real-time updates • 🌍 Multi-modal routing</p>
+        <div class="input-area">
+            <input 
+                type="text" 
+                id="input" 
+                placeholder="Type your source location..."
+                autocomplete="off"
+            >
+            <button onclick="handleInput()" id="sendBtn">Send</button>
         </div>
     </div>
 
     <script>
-        async function analyzeTraffic() {
-            const source = document.getElementById('source').value.trim();
-            const destination = document.getElementById('destination').value.trim();
-            const errorDiv = document.getElementById('error');
-            const resultsCard = document.getElementById('resultsCard');
-            const resultsContent = document.getElementById('resultsContent');
+        let state = 'AWAITING_SOURCE';
+        let source = '';
+        let destination = '';
+        const API_URL = 'http://localhost:5000/api/traffic';
+        const input = document.getElementById('input');
+        const console_el = document.getElementById('console');
 
-            // Validation
-            if (!source || !destination) {
-                errorDiv.textContent = '⚠️ Please enter both source and destination';
-                errorDiv.style.display = 'block';
-                return;
+        window.addEventListener('load', () => {
+            input.focus();
+        });
+
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !input.disabled) {
+                handleInput();
+            }
+        });
+
+        function addMessage(text, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = `bubble ${isUser ? 'user-bubble' : 'bot-bubble'}`;
+            bubble.textContent = text;
+            
+            messageDiv.appendChild(bubble);
+            console_el.appendChild(messageDiv);
+            console_el.scrollTop = console_el.scrollHeight;
+        }
+
+        function showTyping() {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot-message';
+            messageDiv.id = 'typing-indicator';
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble bot-bubble typing';
+            bubble.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+            
+            messageDiv.appendChild(bubble);
+            console_el.appendChild(messageDiv);
+            console_el.scrollTop = console_el.scrollHeight;
+        }
+
+        function removeTyping() {
+            const typing = document.getElementById('typing-indicator');
+            if (typing) typing.remove();
+        }
+
+        function displayResult(data) {
+            removeTyping();
+
+            addMessage(`📍 Route: ${data.source} → ${data.destination}`);
+            
+            setTimeout(() => {
+                addMessage(`🌡️ Weather: ${data.weather}\n😷 AQI - Source: ${data.aqi.source} | Dest: ${data.aqi.destination}`);
+            }, 300);
+
+            if (data.source_details && data.dest_details) {
+                setTimeout(() => {
+                    let ratingMsg = '⭐ Place Ratings:\n';
+                    if (data.source_details.rating !== 'N/A') {
+                        ratingMsg += `• ${data.source}: ${data.source_details.rating}/5 (${data.source_details.reviews} reviews)\n`;
+                    }
+                    if (data.dest_details.rating !== 'N/A') {
+                        ratingMsg += `• ${data.destination}: ${data.dest_details.rating}/5 (${data.dest_details.reviews} reviews)`;
+                    }
+                    addMessage(ratingMsg);
+                }, 600);
             }
 
-            errorDiv.style.display = 'none';
-            resultsContent.innerHTML = '<div class="loading"><div class="spinner"></div><p>Analyzing traffic...</p></div>';
-            resultsCard.classList.add('show');
+            if (data.car_profile) {
+                setTimeout(() => {
+                    const car = data.car_profile;
+                    let carMsg = `🚗 Car Route (${car.via})\n`;
+                    carMsg += `⏱️ ETA: ${car.current_eta} | Distance: ${car.distance}\n`;
+                    carMsg += `⛽ Fuel Cost: ${car.fuel_cost}\n`;
+                    carMsg += `📈 Trend: ${car.trend}\n`;
+                    carMsg += `💡 ${car.recommendation}`;
+                    addMessage(carMsg);
+                }, 900);
+            }
+
+            if (data.bike_profile) {
+                setTimeout(() => {
+                    const bike = data.bike_profile;
+                    let bikeMsg = `🏍️ Bike Route (${bike.via})\n`;
+                    bikeMsg += `⏱️ ETA: ${bike.current_eta} | Distance: ${bike.distance}\n`;
+                    bikeMsg += `⛽ Fuel Cost: ${bike.fuel_cost}\n`;
+                    bikeMsg += `📈 Trend: ${bike.trend}\n`;
+                    bikeMsg += `💡 ${bike.recommendation}`;
+                    addMessage(bikeMsg);
+                }, 1200);
+            }
+
+            setTimeout(() => {
+                addMessage('Would you like to search for another route? Enter the source location:');
+                state = 'AWAITING_SOURCE';
+                source = '';
+                destination = '';
+                input.placeholder = 'Enter source location...';
+                input.disabled = false;
+                input.focus();
+            }, 1500);
+        }
+
+        async function analyzeTraffic() {
+            showTyping();
+            input.disabled = true;
 
             try {
-                // Call the API with OUTPUT_JSON=true to get structured data
-                const response = await fetch('api.php', {
+                const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ source, destination })
@@ -355,89 +348,48 @@
                 const data = await response.json();
 
                 if (!response.ok) {
-                    throw new Error(data.error || 'Failed to analyze traffic');
+                    throw new Error(data.error || 'Analysis failed');
                 }
 
-                displayResults(data);
+                displayResult(data.data);
             } catch (error) {
-                resultsContent.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+                removeTyping();
+                addMessage(`❌ Error: ${error.message}`);
+                addMessage('Please try again. Enter the source location:');
+                state = 'AWAITING_SOURCE';
+                source = '';
+                destination = '';
+                input.placeholder = 'Enter source location...';
+                input.disabled = false;
+                input.focus();
             }
         }
 
-        function displayResults(data) {
-            const resultsContent = document.getElementById('resultsContent');
-            const d = data.data;
+        function handleInput() {
+            const text = input.value.trim();
 
-            let html = `
-                <h2>📊 Traffic Analysis Results</h2>
-                <p style="color: #999; font-size: 0.9em;">Updated: ${d.timestamp}</p>
+            if (!text) return;
 
-                <div class="results-section">
-                    <h3>📍 Route Information</h3>
-                    <div class="location-info">
-                        <p><strong>From:</strong> ${d.source} 
-                            ${d.source_details.rating !== 'N/A' ? `<span class="rating">⭐ ${d.source_details.rating}/5 (${d.source_details.reviews} reviews)</span>` : ''}
-                        </p>
-                        <p><strong>To:</strong> ${d.destination}
-                            ${d.dest_details.rating !== 'N/A' ? `<span class="rating">⭐ ${d.dest_details.rating}/5 (${d.dest_details.reviews} reviews)</span>` : ''}
-                        </p>
-                    </div>
-                </div>
+            addMessage(text, true);
+            input.value = '';
 
-                <div class="weather-aqi">
-                    <div class="weather-box">
-                        <h4>🌡️ Weather</h4>
-                        <p>${d.weather}</p>
-                    </div>
-                    <div class="aqi-box">
-                        <h4>😷 Air Quality</h4>
-                        <p>Source: ${d.aqi.source}</p>
-                        <p style="font-size: 0.9em; margin-top: 5px;">Dest: ${d.aqi.destination}</p>
-                    </div>
-                </div>
-            `;
-
-            // Car Profile
-            if (d.car_profile) {
-                const car = d.car_profile;
-                html += `
-                    <div class="results-section">
-                        <h3>🚗 Car Route (${car.via})</h3>
-                        <div class="route-option">
-                            <p>⏱️ <span class="eta">${car.current_eta}</span> | 📏 ${car.distance}</p>
-                            <p>⛽ <span class="cost">${car.fuel_cost}</span></p>
-                            <p>📈 <span class="trend">${car.trend}</span></p>
-                            <p>💡 ${car.recommendation}</p>
-                            <a href="${car.nav_link}" target="_blank" class="nav-link">🔗 Open in Maps</a>
-                        </div>
-                    </div>
-                `;
+            if (state === 'AWAITING_SOURCE') {
+                source = text;
+                addMessage(`✅ Source set to: ${source}`);
+                setTimeout(() => {
+                    addMessage('Now, where do you want to go? Enter the destination:');
+                    state = 'AWAITING_DESTINATION';
+                    input.placeholder = 'Enter destination...';
+                }, 500);
+            } else if (state === 'AWAITING_DESTINATION') {
+                destination = text;
+                addMessage(`✅ Destination set to: ${destination}`);
+                setTimeout(() => {
+                    addMessage('🔍 Analyzing traffic... please wait');
+                    analyzeTraffic();
+                }, 500);
             }
-
-            // Bike Profile
-            if (d.bike_profile) {
-                const bike = d.bike_profile;
-                html += `
-                    <div class="results-section">
-                        <h3>🏍️ Bike Route (${bike.via})</h3>
-                        <div class="route-option">
-                            <p>⏱️ <span class="eta">${bike.current_eta}</span> | 📏 ${bike.distance}</p>
-                            <p>⛽ <span class="cost">${bike.fuel_cost}</span></p>
-                            <p>📈 <span class="trend">${bike.trend}</span></p>
-                            <p>💡 ${bike.recommendation}</p>
-                            <a href="${bike.nav_link}" target="_blank" class="nav-link">🔗 Open in Maps</a>
-                        </div>
-                    </div>
-                `;
-            }
-
-            document.getElementById('resultsContent').innerHTML = html;
         }
-
-        // Auto-analyze on load
-        window.addEventListener('load', function() {
-            analyzeTraffic();
-        });
     </script>
 </body>
 </html>
