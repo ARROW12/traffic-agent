@@ -1,84 +1,225 @@
-import os, re, requests
+import os
+import re
+import requests
 from datetime import datetime, timedelta
 from twilio.rest import Client
 
-# Configuration
-MAPS_KEY = os.getenv("MAPS_API_KEY")
-TWILIO_CLIENT = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
-TRIGGER = os.getenv("TRIGGER_MESSAGE", "")
+# Configuration Boundaries
+GOOGLE_MAPS_API_KEY = os.getenv("MAPS_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY")
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+YOUR_CELL_NUMBER = os.getenv("YOUR_CELL_NUMBER")
+TWILIO_WHATSAPP_NUMBER = "whatsapp:+14155238886"
 
-def get_fuel_price():
+# Direct location inputs from Twilio (no LLM needed)
+SOURCE_LOCATION = os.getenv("SOURCE_LOCATION", os.getenv("HOME_ADDRESS"))
+DESTINATION_LOCATION = os.getenv("DESTINATION_LOCATION", os.getenv("OFFICE_ADDRESS"))
+
+def get_live_petrol_price():
+    """Fetches the live daily petrol price for Telangana/Hyderabad from an open API endpoint."""
+    fallback_price = 115.73 
     try:
-        res = requests.get("https://www.trinadhthatakula.com/fuelCheck/india/", timeout=5).json()
-        for s in res:
-            if s.get('state', '').lower() == 'telangana':
-                return float(re.sub(r'[^\d.]', '', s.get('petrol', '115.73')))
-    except: return 115.73
+        url = "https://www.trinadhthatakula.com/fuelCheck/india/"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            for state_data in data:
+                if state_data.get('state', '').lower() == 'telangana':
+                    price_str = state_data.get('petrol', str(fallback_price))
+                    clean_price = re.sub(r'[^\d.]', '', price_str)
+                    return float(clean_price)
+    except Exception:
+        pass
+    return fallback_price
 
-PETROL_PRICE = get_fuel_price()
+PETROL_PRICE_HYD = get_live_petrol_price()
 
-def get_route_data(source, dest, mode, timestamp):
-    """Fetches Google Maps data. Returns duration, distance, and coordinates."""
-    params = {"origin": source, "destination": dest, "mode": mode, "departure_time": timestamp, "key": MAPS_KEY}
-    res = requests.get("https://maps.googleapis.com/maps/api/directions/json", params=params).json()
+def get_ist_time():
+    """Converts server runtime clock to Indian Standard Time (IST)."""
+    return (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%I:%M:%S %p")
+
+def get_weather_metrics(lat, lon):
+    """Fetches real-time temperature and weather conditions based on coordinates."""
+    try:
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code"
+        res = requests.get(url, timeout=5).json()
+        temp = res["current"]["temperature_2m"]
+        code = res["current"]["weather_code"]
+        
+        # Map WMO weather codes to visual descriptors
+        if code == 0: desc = "Clear ☀️"
+        elif code in [1, 2, 3]: desc = "Partly Cloudy ⛅"
+        elif code in [45, 48]: desc = "Foggy 🌫️"
+        elif code in [51, 53, 55, 56, 57]: desc = "Drizzle 🌧️"
+        elif code in [61, 63, 65, 66, 67]: desc = "Rain ☔"
+        elif code in [71, 73, 75, 77]: desc = "Snow ❄️"
+        elif code in [80, 81, 82]: desc = "Showers 🌦️"
+        elif code in [95, 96, 99]: desc = "Thunderstorm ⛈️"
+        else: desc = "Unknown 🌤️"
+        
+        return f"{temp}°C, {desc}"
+    except Exception:
+        return "Offline"
+
+def get_aqi_metrics(lat, lon):
+    """Fetches localized real-time US-AQI index ratings."""
+    try:
+        url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=us_aqi"
+        res = requests.get(url, timeout=5).json()
+        aqi = res.get("current", {}).get("us_aqi", None)
+        if aqi is None: return "N/A"
+        if aqi <= 50: return f"{aqi} (Good 🟢)"
+        elif aqi <= 100: return f"{aqi} (Moderate 🟡)"
+        elif aqi <= 150: return f"{aqi} (Sensitive 🟠)"
+        return f"{aqi} (Unhealthy 🔴)"
+    except Exception:
+        return "Offline"
+
+def generate_maps_navigation_url(coords, mode):
+    """Generates a Google Maps navigation link for the given coordinates and mode."""
+    start_lat, start_lon = coords.get('start_lat'), coords.get('start_lon')
+    end_lat, end_lon = coords.get('end_lat'), coords.get('end_lon')
+    gmaps_mode = "driving" if mode == "driving" else "two-wheeler"
+    return f"https://www.google.com/maps/dir/?api=1&origin={start_lat},{start_lon}&destination={end_lat},{end_lon}&travelmode={gmaps_mode}"
+
+def profile_predictive_engine(source, destination, mode):
+    """Samples forward vectors and computes real-time regression curves."""
+    base_url = "https://maps.googleapis.com/maps/api/directions/json"
+    intervals = [0, 10, 30]  # Now, +10min, +30min
+    sampled_durations = []
     
-    if res.get("status") == "OK":
-        leg = res["routes"][0]["legs"][0]
-        return {
-            "dur": leg.get("duration_in_traffic", leg["duration"])["value"] / 60,
-            "dist_val": leg["distance"]["value"] / 1000,
-            "dist_txt": leg["distance"]["text"],
-            "lat": leg["start_location"]["lat"], "lon": leg["start_location"]["lng"]
+    primary_via = "Standard Route"
+    distance_km = 0.0
+    distance_str = "N/A"
+    coords = {}
+    
+    for idx, offset in enumerate(intervals):
+        future_timestamp = int((datetime.utcnow() + timedelta(minutes=offset)).timestamp())
+        params = {
+            "origin": source,
+            "destination": destination,
+            "mode": mode,
+            "departure_time": str(future_timestamp),
+            "key": GOOGLE_MAPS_API_KEY
         }
-    return None
+        
+        try:
+            res = requests.get(base_url, params=params).json()
+            if res.get("status") == "OK":
+                route = res["routes"][0]
+                leg = route["legs"][0]
+                
+                if idx == 0:
+                    primary_via = route.get("summary", "Primary Route")
+                    distance_km = leg["distance"]["value"] / 1000.0
+                    distance_str = leg["distance"]["text"]
+                    coords = {
+                        'start_lat': leg["start_location"]["lat"], 'start_lon': leg["start_location"]["lng"],
+                        'end_lat': leg["end_location"]["lat"], 'end_lon': leg["end_location"]["lng"]
+                    }
+                
+                dur_val = leg.get("duration_in_traffic", leg["duration"])["value"] / 60.0
+                sampled_durations.append(dur_val)
+            else:
+                if len(sampled_durations) > 0:
+                    sampled_durations.append(sampled_durations[-1])
+        except Exception:
+            return None
 
-def get_meteo(lat, lon):
-    try:
-        w = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code", timeout=5).json()["current"]
-        a = requests.get(f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=us_aqi", timeout=5).json()["current"]
-        alerts = []
-        if w["weather_code"] in [51, 61, 80]: alerts.append("⚠️ Rain predicted.")
-        if w["temperature_2m"] > 38: alerts.append("🔥 Heat advisory.")
-        return f"{w['temperature_2m']}°C", f"{a['us_aqi']}", alerts
-    except: return "N/A", "N/A", ["Weather data offline."]
+    if len(sampled_durations) < 2:
+        return None
 
-def construct_brief():
-    # Parse input from Twilio: "from [Source] to [Dest] in 0 mins"
-    match = re.search(r'from\s+(.+?)\s+to\s+(.+?)\s+in', TRIGGER, re.IGNORECASE)
-    s, d = (match.group(1).strip(), match.group(2).strip()) if match else ("Current Location", "Destination")
+    mileage = 12.0 if mode == "driving" else 25.0
+    fuel_cost = (distance_km / mileage) * PETROL_PRICE_HYD
     
-    now = int(datetime.utcnow().timestamp())
-    future = int((datetime.utcnow() + timedelta(minutes=10)).timestamp())
-    
-    # CALCULATE PROFILES
-    car_now = get_route_data(s, d, "driving", now)
-    car_future = get_route_data(s, d, "driving", future)
-    bike = get_route_data(s, d, "two-wheeler", now)
-    
-    temp, aqi, alerts = get_meteo(car_now['lat'], car_now['lon']) if car_now else ("N/A", "N/A", [])
-    
-    # PREDICTIVE TREND ANALYSIS
-    trend = "Stable"
-    if car_now and car_future:
-        delta = car_future['dur'] - car_now['dur']
-        trend = "📈 Building" if delta > 1 else ("📉 Clearing" if delta < -1 else "➡️ Stable")
+    delta_10 = sampled_durations[1] - sampled_durations[0]
+    if delta_10 > 0.5:
+        immediate_trend = f"Building 📈 (+{int(delta_10)}m if you wait 10m)"
+        recommendation = "Depart immediately to outrun peak gridlock build-up."
+    elif delta_10 < -0.5:
+        immediate_trend = f"Clearing 📉 (-{int(abs(delta_10))}m if you wait 10m)"
+        recommendation = "Hold position. Bottleneck patterns are currently dissolving."
+    else:
+        immediate_trend = "Stable ➡️"
+        recommendation = "Traffic is consistent. Proceed at your discretion."
 
-    brief = [f"🤖 *JARVIS FLIGHT PLAN — {datetime.now().strftime('%I:%M %p')}*", f"🗺️ *Vector:* {s} ➔ {d}", f"🌡️ {temp} | 😷 AQI: {aqi}", "---"]
-    
-    # CAR PROFILE
-    if car_now:
-        fuel = (car_now['dist_val'] / 12) * PETROL_PRICE
-        brief.append(f"🚗 *CAR:* {int(car_now['dur'])}m ({car_now['dist_txt']}) | Trend: {trend}")
-        brief.append(f"⛽ *Est. Cost:* ₹{fuel:.2f}")
-    
-    # BIKE PROFILE
-    if bike:
-        fuel_bike = (bike['dist_val'] / 25) * PETROL_PRICE
-        brief.append(f"🏍️ *BIKE:* {int(bike['dur'])}m ({bike['dist_txt']})")
-        brief.append(f"⛽ *Est. Cost:* ₹{fuel_bike:.2f}")
+    return {
+        "via": primary_via,
+        "distance": distance_str,
+        "current_eta": f"{int(sampled_durations[0])} mins",
+        "trend": immediate_trend,
+        "recommendation": recommendation,
+        "fuel_cost": f"₹{fuel_cost:.2f}",
+        "coords": coords,
+        "nav_link": generate_maps_navigation_url(coords, mode)
+    }
 
-    brief.extend(["---", "*ALERTS:* " + (", ".join(alerts) if alerts else "None")])
+def construct_jarvis_intelligence_brief():
+    """Assembles all data sub-systems into a clean character-optimized brief."""
+    # Use direct location inputs from Twilio (no parsing needed)
+    source = SOURCE_LOCATION
+    destination = DESTINATION_LOCATION
+    
+    car_profile = profile_predictive_engine(source, destination, "driving")
+    bike_profile = profile_predictive_engine(source, destination, "two-wheeler")
+    
+    source_aqi, dest_aqi, vector_weather = "N/A", "N/A", "N/A"
+    active_profile = car_profile or bike_profile
+    
+    if active_profile and 'coords' in active_profile:
+        c = active_profile['coords']
+        source_aqi = get_aqi_metrics(c['start_lat'], c['start_lon'])
+        dest_aqi = get_aqi_metrics(c['end_lat'], c['end_lon'])
+        vector_weather = get_weather_metrics(c['start_lat'], c['start_lon'])
+
+    # Format the source/dest cleanly (e.g. Title Case)
+    display_source = str(source).title()
+    display_dest = str(destination).title()
+    timestamp = get_ist_time()
+    
+    brief = [
+        f"🤖 *JARVIS FLIGHT PLAN SYSTEM — SYNC_{timestamp}*",
+        f"🗺️ *Vector:* {display_source} ➔ {display_dest}",
+        f"🌡️ *Weather:* {vector_weather}",
+        f"😷 *AQI:* Source: {source_aqi} | Dest: {dest_aqi}",
+        "============================="
+    ]
+    
+    if car_profile:
+        brief.extend([
+            f"🚗 *CAR SYSTEM PROFILE [{car_profile['via']}]*",
+            f"• ⏱️ ETA: `{car_profile['current_eta']}` | Range: {car_profile['distance']}",
+            f"• ⛽ Fuel Cost: *{car_profile['fuel_cost']}* (Live Price: ₹{PETROL_PRICE_HYD:.2f}/L)",
+            f"• 🔮 10-Min Trend: {car_profile['trend']}",
+            f"• 💡 Vector Strategy: {car_profile['recommendation']}",
+            f"🔗 *Launch Navigation:* {car_profile['nav_link']}",
+            "-----------------------------"
+        ])
+        
+    if bike_profile:
+        brief.extend([
+            f"🏍️ *BIKE SYSTEM PROFILE [{bike_profile['via']}]*",
+            f"• ⏱️ ETA: `{bike_profile['current_eta']}` | Range: {bike_profile['distance']}",
+            f"• ⛽ Fuel Cost: *{bike_profile['fuel_cost']}* (Live Price: ₹{PETROL_PRICE_HYD:.2f}/L)",
+            f"• 🔮 10-Min Trend: {bike_profile['trend']}",
+            f"• 💡 Vector Strategy: {bike_profile['recommendation']}",
+            f"🔗 *Launch Navigation:* {bike_profile['nav_link']}"
+        ])
+        
+    if not car_profile and not bike_profile:
+        return f"⚠️ Core Interface Failure: Target routing strings could not be resolved."
+        
     return "\n".join(brief)
 
+def dispatch_brief(text):
+    """Transmits structural intelligence report to user endpoint."""
+    if len(text) > 1550:
+        text = text[:1500] + "\n\n⚠️ Payload truncated to meet text character safety buffers."
+        
+    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=text, to=YOUR_CELL_NUMBER)
+
 if __name__ == "__main__":
-    TWILIO_CLIENT.messages.create(from_="whatsapp:+14155238886", body="\n".join(construct_brief()), to=os.getenv("YOUR_CELL_NUMBER"))
+    briefing_payload = construct_jarvis_intelligence_brief()
+    dispatch_brief(briefing_payload)
