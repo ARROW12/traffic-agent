@@ -1,10 +1,9 @@
 import os
 import re
+import json
 import requests
-import urllib.parse
 import numpy as np
 from datetime import datetime, timedelta
-from sklearn.linear_model import LinearRegression
 from twilio.rest import Client
 
 # Configuration Boundaries
@@ -14,6 +13,10 @@ TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 YOUR_CELL_NUMBER = os.getenv("YOUR_CELL_NUMBER")
 TWILIO_WHATSAPP_NUMBER = "whatsapp:+14155238886"
 
+# Hugging Face Free Inference Config
+HF_TOKEN = os.getenv("HF_TOKEN")
+HF_API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
+
 DEFAULT_HOME = os.getenv("HOME_ADDRESS")
 DEFAULT_OFFICE = os.getenv("OFFICE_ADDRESS")
 TRIGGER_MESSAGE = os.getenv("TRIGGER_MESSAGE", "")
@@ -21,29 +24,51 @@ TRIGGER_MESSAGE = os.getenv("TRIGGER_MESSAGE", "")
 # Localized price baseline for Hyderabad, Telangana
 PETROL_PRICE_HYD = 115.73  
 
-def parse_trigger_message(msg):
-    """Parses incoming text strings using regex rules to extract custom location overrides."""
-    if not msg or "from" not in msg.lower() or "to" not in msg.lower():
+def parse_trigger_message_with_llm(msg):
+    """Uses a free serverless LLM to extract source, destination, and timing offsets into a clean dictionary."""
+    # Instantly fallback if empty or a simple system trigger
+    if not msg or len(msg.strip()) < 10:
         return DEFAULT_HOME, DEFAULT_OFFICE, 0
-        
-    source, destination, offset = None, None, 0
+
+    # Strict system instructions forcing JSON output
+    system_prompt = (
+        "You are a precise data extraction assistant. Your task is to extract navigation routing details "
+        "from a user's text message. You must output exactly a JSON dictionary with these keys: "
+        "'source' (string or null), 'destination' (string or null), and 'offset_minutes' (integer or 0).\n"
+        "Rules:\n"
+        "1. Extract the starting point into 'source' and the destination building/area into 'destination'.\n"
+        "2. Extract relative time frames (like 'in 30 mins' or 'after 15 minutes') into 'offset_minutes' as a pure integer.\n"
+        "3. Do NOT include conversational words like 'can you share', 'please', or 'in 30 mins' inside the source or destination names.\n"
+        "4. Return ONLY valid raw JSON. No markdown wrappers, no explanations."
+    )
+
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    payload = {
+        "inputs": f"<|system|>\n{system_prompt}\n<|user|>\nInput text: \"{msg}\"\n<|assistant|>\n",
+        "parameters": {"max_new_tokens": 150, "temperature": 0.1}
+    }
+
     try:
-        from_match = re.search(r'\bfrom\s+(.*?)\s+to\b', msg, re.IGNORECASE)
-        if from_match:
-            source = from_match.group(1).strip()
+        response = requests.post(HF_API_URL, json=payload, headers=headers, timeout=10)
+        if response.status_code == 200:
+            raw_output = response.json()[0]['generated_text']
             
-        to_match = re.search(r'\bto\s+(.*?)(?:\s+in\s+|\s+now\b|\s+can\s+you|$)', msg, re.IGNORECASE)
-        if to_match:
-            destination = to_match.group(1).strip()
-            destination = re.sub(r'(,?\s+in\s+\d+.*|,?\s+now.*)', '', destination, flags=re.IGNORECASE).strip()
-            
-        time_match = re.search(r'\bin\s+(\d+)\s*mins?', msg, re.IGNORECASE)
-        if time_match:
-            offset = int(time_match.group(1))
-    except Exception:
-        return DEFAULT_HOME, DEFAULT_OFFICE, 0
+            # Extract just the JSON content if the LLM added prose
+            json_match = re.search(r'\{.*?\}', raw_output, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group(0))
+                
+                # Extract and map back to fallbacks if values are null
+                source = data.get("source") or DEFAULT_HOME
+                destination = data.get("destination") or DEFAULT_OFFICE
+                offset = int(data.get("offset_minutes", 0))
+                
+                return source, destination, offset
+    except Exception as e:
+        print(f"LLM parsing failed or timed out: {e}. Falling back to default secrets.")
         
-    return (source or DEFAULT_HOME), (destination or DEFAULT_OFFICE), offset
+    # Standard fallback if LLM api fails
+    return DEFAULT_HOME, DEFAULT_OFFICE, 0
 
 def get_ist_time():
     """Converts server runtime clock to Indian Standard Time (IST)."""
@@ -63,23 +88,27 @@ def get_aqi_metrics(lat, lon):
     except Exception:
         return "Offline"
 
-def generate_maps_navigation_url(origin, destination, mode):
-    """Generates standard universal deep links to launch native maps app."""
-    encoded_origin = urllib.parse.quote(origin)
-    encoded_dest = urllib.parse.quote(destination)
-    gmaps_mode = "driving" if mode == "driving" else "bicycling"
-    return f"https://www.google.com/maps/dir/?api=1&origin={encoded_origin}&destination={encoded_dest}&travelmode={gmaps_mode}"
+def generate_maps_navigation_url(coords, mode):
+    """Generates standard universal deep links using coordinates to guarantee mobile resolution."""
+    start_lat = coords.get('start_lat')
+    start_lon = coords.get('start_lon')
+    end_lat = coords.get('end_lat')
+    end_lon = coords.get('end_lon')
+    
+    gmaps_mode = "driving" if mode == "driving" else "two-wheeler"
+    return f"https://www.google.com/maps/dir/?api=1&origin={start_lat},{start_lon}&destination={end_lat},{end_lon}&travelmode={gmaps_mode}"
 
 def profile_predictive_engine(source, destination, base_offset, mode):
     """Samples forward vectors and computes real-time regression curves."""
     base_url = "https://maps.googleapis.com/maps/api/directions/json"
     intervals = [base_offset, base_offset + 10, base_offset + 30]
     sampled_durations = []
-    timeline_matrix = np.array(intervals).reshape(-1, 1)
     
     primary_via = "Standard Route"
     distance_km = 0.0
     distance_str = "N/A"
+    resolved_source = source
+    resolved_destination = destination
     coords = {}
     
     for idx, offset in enumerate(intervals):
@@ -102,6 +131,8 @@ def profile_predictive_engine(source, destination, base_offset, mode):
                     primary_via = route.get("summary", "Primary Route")
                     distance_km = leg["distance"]["value"] / 1000.0
                     distance_str = leg["distance"]["text"]
+                    resolved_source = leg.get("start_address", source)
+                    resolved_destination = leg.get("end_address", destination)
                     coords = {
                         'start_lat': leg["start_location"]["lat"], 'start_lon': leg["start_location"]["lng"],
                         'end_lat': leg["end_location"]["lat"], 'end_lon': leg["end_location"]["lng"]
@@ -118,11 +149,9 @@ def profile_predictive_engine(source, destination, base_offset, mode):
     if len(sampled_durations) < 2:
         return None
 
-    # Calculate precise fuel consumption expenses
     mileage = 12.0 if mode == "driving" else 25.0
     fuel_cost = (distance_km / mileage) * PETROL_PRICE_HYD
     
-    # Delta optimization matrix
     delta_10 = sampled_durations[1] - sampled_durations[0]
     if delta_10 > 0.5:
         immediate_trend = f"Building 📈 (+{int(delta_10)}m if you wait 10m)"
@@ -137,23 +166,29 @@ def profile_predictive_engine(source, destination, base_offset, mode):
     return {
         "via": primary_via,
         "distance": distance_str,
+        "resolved_source": resolved_source,
+        "resolved_destination": resolved_destination,
         "current_eta": f"{int(sampled_durations[0])} mins",
         "trend": immediate_trend,
         "recommendation": recommendation,
         "fuel_cost": f"₹{fuel_cost:.2f}",
         "coords": coords,
-        "nav_link": generate_maps_navigation_url(source, destination, mode)
+        "nav_link": generate_maps_navigation_url(coords, mode)
     }
 
 def construct_jarvis_intelligence_brief():
     """Assembles all data sub-systems into a clean character-optimized brief."""
-    source, destination, base_offset = parse_trigger_message(TRIGGER_MESSAGE)
+    source, destination, base_offset = parse_trigger_message_with_llm(TRIGGER_MESSAGE)
     
     car_profile = profile_predictive_engine(source, destination, base_offset, "driving")
     bike_profile = profile_predictive_engine(source, destination, base_offset, "two_wheeler")
     
     source_aqi, dest_aqi = "N/A", "N/A"
     active_profile = car_profile or bike_profile
+    
+    display_source = active_profile["resolved_source"] if active_profile else source
+    display_dest = active_profile["resolved_destination"] if active_profile else destination
+    
     if active_profile and 'coords' in active_profile:
         c = active_profile['coords']
         source_aqi = get_aqi_metrics(c['start_lat'], c['start_lon'])
@@ -162,7 +197,7 @@ def construct_jarvis_intelligence_brief():
     timestamp = get_ist_time()
     brief = [
         f"🤖 *JARVIS FLIGHT PLAN SYSTEM — SYNC_{timestamp}*",
-        f"🗺️ *Vector:* {source} ➔ {destination}",
+        f"🗺️ *Vector:* {display_source} ➔ {display_dest}",
         f"😷 *AQI:* Source: {source_aqi} | Dest: {dest_aqi}",
         "============================="
     ]
@@ -195,7 +230,6 @@ def construct_jarvis_intelligence_brief():
 
 def dispatch_brief(text):
     """Transmits structural intelligence report to user endpoint."""
-    # Emergency truncation catch to guarantee safety under the absolute limit
     if len(text) > 1550:
         text = text[:1500] + "\n\n⚠️ Payload truncated to meet text character safety buffers."
         
