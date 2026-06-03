@@ -4,6 +4,8 @@ import json
 import requests
 import numpy as np
 from datetime import datetime, timedelta
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from twilio.rest import Client
 
 # Configuration Boundaries
@@ -13,9 +15,9 @@ TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 YOUR_CELL_NUMBER = os.getenv("YOUR_CELL_NUMBER")
 TWILIO_WHATSAPP_NUMBER = "whatsapp:+14155238886"
 
-# Hugging Face Free Inference Config
+# Hugging Face Free Inference Config (Swapped to un-gated Mistral)
 HF_TOKEN = os.getenv("HF_TOKEN")
-HF_API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
+HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
 
 DEFAULT_HOME = os.getenv("HOME_ADDRESS")
 DEFAULT_OFFICE = os.getenv("OFFICE_ADDRESS")
@@ -23,27 +25,23 @@ TRIGGER_MESSAGE = os.getenv("TRIGGER_MESSAGE", "")
 
 def get_live_petrol_price():
     """Fetches the live daily petrol price for Telangana/Hyderabad from an open API endpoint."""
-    fallback_price = 115.73 # Standard historical baseline if API fails
+    fallback_price = 115.73 
     try:
         url = "https://www.trinadhthatakula.com/fuelCheck/india/"
         response = requests.get(url, timeout=10)
         
-        # The API returns a list of dictionaries. We need to find Telangana.
         if response.status_code == 200:
             data = response.json()
             for state_data in data:
                 if state_data.get('state', '').lower() == 'telangana':
-                    # Extract the petrol price and convert to float
                     price_str = state_data.get('petrol', str(fallback_price))
-                    # Clean up the string just in case it has currency symbols
                     clean_price = re.sub(r'[^\d.]', '', price_str)
                     return float(clean_price)
-    except Exception as e:
-        print(f"Failed to fetch live petrol price: {e}. Using fallback.")
-        
+    except Exception:
+        pass
     return fallback_price
 
-# Fetch dynamic localized price baseline for Hyderabad, Telangana
+# Global dynamic localized price baseline for Hyderabad, Telangana
 PETROL_PRICE_HYD = get_live_petrol_price()
 
 def parse_trigger_message_with_llm(msg):
@@ -57,33 +55,47 @@ def parse_trigger_message_with_llm(msg):
         "'source' (string or null), 'destination' (string or null), and 'offset_minutes' (integer or 0).\n"
         "Rules:\n"
         "1. Extract the starting point into 'source' and the destination building/area into 'destination'.\n"
-        "2. Extract relative time frames (like 'in 30 mins' or 'after 15 minutes') into 'offset_minutes' as a pure integer.\n"
+        "2. Extract relative time frames into 'offset_minutes' as a pure integer.\n"
         "3. Do NOT include conversational words like 'can you share', 'please', or 'in 30 mins' inside the source or destination names.\n"
-        "4. Return ONLY valid raw JSON. No markdown wrappers, no explanations."
+        "4. Return ONLY valid raw JSON."
     )
 
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     payload = {
-        "inputs": f"<|system|>\n{system_prompt}\n<|user|>\nInput text: \"{msg}\"\n<|assistant|>\n",
+        "inputs": f"<s>[INST] {system_prompt}\n\nUser Message: \"{msg}\" [/INST]\n",
         "parameters": {"max_new_tokens": 150, "temperature": 0.1}
     }
 
+    # Setup a robust session to handle GitHub Actions transient network drops
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,  
+        backoff_factor=1,  
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["POST"]
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
     try:
-        response = requests.post(HF_API_URL, json=payload, headers=headers, timeout=10)
+        response = session.post(HF_API_URL, json=payload, headers=headers, timeout=15)
         if response.status_code == 200:
             raw_output = response.json()[0]['generated_text']
             
+            # Isolate the assistant response out of the instruction wrapper
+            if "[/INST]" in raw_output:
+                raw_output = raw_output.split("[/INST]")[-1]
+                
             json_match = re.search(r'\{.*?\}', raw_output, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group(0))
-                
                 source = data.get("source") or DEFAULT_HOME
                 destination = data.get("destination") or DEFAULT_OFFICE
-                offset = int(data.get("offset_minutes", 0))
-                
+                offset = int(data.get("offset_minutes", 0) or 0)
                 return source, destination, offset
     except Exception as e:
-        print(f"LLM parsing failed or timed out: {e}. Falling back to default secrets.")
+        print(f"LLM parsing failed after retries: {e}. Falling back to default secrets.")
         
     return DEFAULT_HOME, DEFAULT_OFFICE, 0
 
@@ -91,11 +103,34 @@ def get_ist_time():
     """Converts server runtime clock to Indian Standard Time (IST)."""
     return (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%I:%M:%S %p")
 
+def get_weather_metrics(lat, lon):
+    """Fetches real-time temperature and weather conditions based on coordinates."""
+    try:
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code"
+        res = requests.get(url, timeout=5).json()
+        temp = res["current"]["temperature_2m"]
+        code = res["current"]["weather_code"]
+        
+        # Map WMO weather codes to user-friendly emojis
+        if code == 0: desc = "Clear ☀️"
+        elif code in [1, 2, 3]: desc = "Partly Cloudy ⛅"
+        elif code in [45, 48]: desc = "Foggy 🌫️"
+        elif code in [51, 53, 55, 56, 57]: desc = "Drizzle 🌧️"
+        elif code in [61, 63, 65, 66, 67]: desc = "Rain ☔"
+        elif code in [71, 73, 75, 77]: desc = "Snow ❄️"
+        elif code in [80, 81, 82]: desc = "Showers 🌦️"
+        elif code in [95, 96, 99]: desc = "Thunderstorm ⛈️"
+        else: desc = "Unknown 🌤️"
+        
+        return f"{temp}°C, {desc}"
+    except Exception:
+        return "Offline"
+
 def get_aqi_metrics(lat, lon):
     """Fetches localized real-time US-AQI index ratings."""
     try:
         url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=us_aqi"
-        res = requests.get(url).json()
+        res = requests.get(url, timeout=5).json()
         aqi = res.get("current", {}).get("us_aqi", None)
         if aqi is None: return "N/A"
         if aqi <= 50: return f"{aqi} (Good 🟢)"
@@ -106,12 +141,9 @@ def get_aqi_metrics(lat, lon):
         return "Offline"
 
 def generate_maps_navigation_url(coords, mode):
-    """Generates standard universal deep links using precise coordinates to guarantee mobile resolution."""
-    start_lat = coords.get('start_lat')
-    start_lon = coords.get('start_lon')
-    end_lat = coords.get('end_lat')
-    end_lon = coords.get('end_lon')
-    
+    """Generates deep links using precise coordinates to guarantee mobile resolution accuracy."""
+    start_lat, start_lon = coords.get('start_lat'), coords.get('start_lon')
+    end_lat, end_lon = coords.get('end_lat'), coords.get('end_lon')
     gmaps_mode = "driving" if mode == "driving" else "two-wheeler"
     return f"https://www.google.com/maps/dir/?api=1&origin={start_lat},{start_lon}&destination={end_lat},{end_lon}&travelmode={gmaps_mode}"
 
@@ -124,8 +156,6 @@ def profile_predictive_engine(source, destination, base_offset, mode):
     primary_via = "Standard Route"
     distance_km = 0.0
     distance_str = "N/A"
-    resolved_source = source
-    resolved_destination = destination
     coords = {}
     
     for idx, offset in enumerate(intervals):
@@ -148,8 +178,7 @@ def profile_predictive_engine(source, destination, base_offset, mode):
                     primary_via = route.get("summary", "Primary Route")
                     distance_km = leg["distance"]["value"] / 1000.0
                     distance_str = leg["distance"]["text"]
-                    resolved_source = leg.get("start_address", source)
-                    resolved_destination = leg.get("end_address", destination)
+                    # Coordinates are locked here, but the clean display names are untouched
                     coords = {
                         'start_lat': leg["start_location"]["lat"], 'start_lon': leg["start_location"]["lng"],
                         'end_lat': leg["end_location"]["lat"], 'end_lon': leg["end_location"]["lng"]
@@ -166,11 +195,9 @@ def profile_predictive_engine(source, destination, base_offset, mode):
     if len(sampled_durations) < 2:
         return None
 
-    # Calculate precise fuel consumption expenses using the LIVE petrol price
     mileage = 12.0 if mode == "driving" else 25.0
     fuel_cost = (distance_km / mileage) * PETROL_PRICE_HYD
     
-    # Delta optimization matrix
     delta_10 = sampled_durations[1] - sampled_durations[0]
     if delta_10 > 0.5:
         immediate_trend = f"Building 📈 (+{int(delta_10)}m if you wait 10m)"
@@ -185,8 +212,6 @@ def profile_predictive_engine(source, destination, base_offset, mode):
     return {
         "via": primary_via,
         "distance": distance_str,
-        "resolved_source": resolved_source,
-        "resolved_destination": resolved_destination,
         "current_eta": f"{int(sampled_durations[0])} mins",
         "trend": immediate_trend,
         "recommendation": recommendation,
@@ -202,21 +227,24 @@ def construct_jarvis_intelligence_brief():
     car_profile = profile_predictive_engine(source, destination, base_offset, "driving")
     bike_profile = profile_predictive_engine(source, destination, base_offset, "two_wheeler")
     
-    source_aqi, dest_aqi = "N/A", "N/A"
+    source_aqi, dest_aqi, vector_weather = "N/A", "N/A", "N/A"
     active_profile = car_profile or bike_profile
-    
-    display_source = active_profile["resolved_source"] if active_profile else source
-    display_dest = active_profile["resolved_destination"] if active_profile else destination
     
     if active_profile and 'coords' in active_profile:
         c = active_profile['coords']
         source_aqi = get_aqi_metrics(c['start_lat'], c['start_lon'])
         dest_aqi = get_aqi_metrics(c['end_lat'], c['end_lon'])
+        vector_weather = get_weather_metrics(c['start_lat'], c['start_lon'])
 
+    # Enforce clear input title case override parameters
+    display_source = str(source).title()
+    display_dest = str(destination).title()
     timestamp = get_ist_time()
+    
     brief = [
         f"🤖 *JARVIS FLIGHT PLAN SYSTEM — SYNC_{timestamp}*",
         f"🗺️ *Vector:* {display_source} ➔ {display_dest}",
+        f"🌡️ *Weather:* {vector_weather}",
         f"😷 *AQI:* Source: {source_aqi} | Dest: {dest_aqi}",
         "============================="
     ]
