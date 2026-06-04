@@ -108,27 +108,21 @@ def clean_html(raw_html):
 def inspect_incidents(route_data):
     """Audits warnings and navigation lines for accidents, closures, and disruptions."""
     alerts = []
-    
-    # Check top-level administrative route warnings
     for warning in route_data.get("warnings", []):
         alerts.append(f"⚠️ {warning}")
         
-    # Inspect step-by-step metadata for road-level alerts
     for leg in route_data.get("legs", []):
         for step in leg.get("steps", []):
             instruction = clean_html(step.get("html_instructions", ""))
-            
-            # Look for explicit disruption terms
             if any(k in instruction.lower() for k in ["accident", "road closed", "blocked", "heavy traffic", "congestion", "gridlock"]):
                 if len(instruction) > 65:
                     instruction = instruction[:62] + "..."
                 alerts.append(f"🚨 {instruction}")
                 
-    # Deduplicate arrays preserving structure order
     return list(dict.fromkeys(alerts))[:3]
 
 def detect_tolls(route_data):
-    """Scans the route matrix to detect if a toll booth is present on this specific path."""
+    """Scans the route matrix to detect if a toll booth is present."""
     for warning in route_data.get("warnings", []):
         if "toll" in warning.lower():
             return True
@@ -140,11 +134,13 @@ def detect_tolls(route_data):
     return False
 
 def generate_maps_navigation_url(coords, mode):
+    """Generates official Google Maps mobile navigation intents."""
     if not coords: return "N/A"
-    return f"https://www.google.com/maps/dir/?api=1&origin={coords['start_lat']},{coords['start_lon']}&destination={coords['end_lat']},{coords['end_lon']}&travelmode={mode}"
+    gmaps_mode = "driving" if mode == "driving" else "two-wheeler"
+    return f"https://www.google.com/maps/dir/?api=1&origin={coords['start_lat']},{coords['start_lon']}&destination={coords['end_lat']},{coords['end_lon']}&travelmode={gmaps_mode}"
 
 def process_route_object(route, mode):
-    """Extracts measurements, structures incident flags, detects tolls, and calculates fuel bounds."""
+    """Extracts measurements, flags incidents, detects tolls, and calculates fuel bounds."""
     leg = route["legs"][0]
     distance_km = leg["distance"]["value"] / 1000.0
     duration_str = leg.get("duration_in_traffic", leg["duration"])["text"]
@@ -152,6 +148,7 @@ def process_route_object(route, mode):
     incidents = inspect_incidents(route)
     has_tolls = detect_tolls(route)
     
+    # Custom Fuel Calculation Profiles
     mileage = 12.0 if mode == "driving" else 25.0
     cost = (distance_km / mileage) * PETROL_PRICE_HYD
     
@@ -175,10 +172,13 @@ def profile_predictive_engine(source, destination, mode):
     """Samples data patterns across the area map, identifying alternative variants."""
     base_url = "https://maps.googleapis.com/maps/api/directions/json"
     now_timestamp = int(datetime.utcnow().timestamp())
+    
+    # We use "driving" for both map API requests to ensure highways route correctly, 
+    # but the internal `mode` passed in applies bike math and URLs on our end.
     params = {
         "origin": source,
         "destination": destination,
-        "mode": "driving" if mode == "driving" else "bicycling",
+        "mode": "driving", 
         "departure_time": str(now_timestamp),
         "alternatives": "true",
         "key": GOOGLE_MAPS_API_KEY
@@ -191,12 +191,12 @@ def profile_predictive_engine(source, destination, mode):
         routes_found = res["routes"]
         processed_routes = []
         
-        for r in routes_found[:3]: # Keep maximum of 3 unique routing frameworks
+        for r in routes_found[:3]: 
             processed_routes.append(process_route_object(r, mode))
             
         if not processed_routes: return None
         
-        # Phase 2: Compute 10-minute directional change tracking for the primary variant
+        # Trend mapping for the primary route
         future_timestamp = int((datetime.utcnow() + timedelta(minutes=10)).timestamp())
         params["alternatives"] = "false"
         params["departure_time"] = str(future_timestamp)
@@ -263,7 +263,7 @@ def construct_jarvis_intelligence_brief():
             prefix = "🏆 *Primary*" if i == 0 else f"⌥ *Alt Route {i}*"
             brief.append(f"{prefix} [Via {r['via']}]")
             brief.append(f" • ⏱️ Time: `{r['duration']}` | 📏 Dist: {r['distance']}")
-            brief.append(f" • ⛽ Fuel: {r['fuel_cost']} | 🛣️ Tolls: {r['tolls']}")
+            brief.append(f" • ⛽ Fuel: *{r['fuel_cost']}* (Live Price: ₹{PETROL_PRICE_HYD:.2f}/L) | 🛣️ Tolls: {r['tolls']}")
             if r['alerts']:
                 brief.append(f" • {r['alerts'][0]}") 
             if i == 0:
@@ -278,7 +278,7 @@ def construct_jarvis_intelligence_brief():
             prefix = "🏆 *Primary*" if i == 0 else f"⌥ *Alt Route {i}*"
             brief.append(f"{prefix} [Via {r['via']}]")
             brief.append(f" • ⏱️ Time: `{r['duration']}` | 📏 Dist: {r['distance']}")
-            brief.append(f" • ⛽ Fuel: {r['fuel_cost']} | 🛣️ Tolls: {r['tolls']}")
+            brief.append(f" • ⛽ Fuel: *{r['fuel_cost']}* (Live Price: ₹{PETROL_PRICE_HYD:.2f}/L) | 🛣️ Tolls: {r['tolls']}")
             if r['alerts']:
                 brief.append(f" • {r['alerts'][0]}")
             brief.append(f" 🔗 *Nav:* {r['nav_link']}")
